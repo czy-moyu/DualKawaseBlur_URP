@@ -15,8 +15,8 @@ MonoBehaviour:
   m_Active: 1
   setting:
     threshold: 1
-    iteration: 3
-    blurRadius: 0
+    iteration: 4
+    blurRadius: -1
     intensity: 0
 --- !u!114 &11400000
 MonoBehaviour:

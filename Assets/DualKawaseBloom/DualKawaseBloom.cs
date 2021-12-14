@@ -16,7 +16,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
         public float threshold = 1f;
         [Range(1,10)]
         public int iteration = 3;
-        [Range(0.0f, 15.0f)]
+        [Range(-1f, 10.0f)]
         public float blurRadius;
         [Range(1f, 32f)]
         public float intensity;
