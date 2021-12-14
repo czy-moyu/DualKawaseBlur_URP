@@ -14,6 +14,12 @@ public class DualKawaseBloom : ScriptableRendererFeature
     {
         [Range(0f, 10f)]
         public float threshold = 1f;
+        [Range(1,10)]
+        public int iteration = 3;
+        [Range(0.0f, 15.0f)]
+        public float blurRadius;
+        [Range(1f, 32f)]
+        public float intensity;
     }
     
     class CustomRenderPass : ScriptableRenderPass
@@ -29,7 +35,6 @@ public class DualKawaseBloom : ScriptableRendererFeature
         public CustomRenderPass(DualKawaseBloom dualKawaseBloom)
         {
             bloom = dualKawaseBloom;
-            
             
             Shader shader = Shader.Find("Hidden/PostEffect/DualKawaseBloom");
             bloomMat = new Material(shader);
@@ -95,9 +100,43 @@ public class DualKawaseBloom : ScriptableRendererFeature
             CommandBuffer cmd = CommandBufferPool.Get("DualKawaseBloom");
             cmd.Clear();
             bloomMat.SetFloat(Threshold, bloom.setting.threshold);
+            bloomMat.SetFloat("_Offset", bloom.setting.blurRadius);
+            
             cmd.Blit( renderingData.cameraData.renderer.cameraColorTarget, 
                 _BloomMipDown[0], bloomMat, 0);
-            cmd.Blit(_BloomMipDown[0], renderingData.cameraData.renderer.cameraColorTarget);
+            // cmd.Blit(_BloomMipDown[0], renderingData.cameraData.renderer.cameraColorTarget);
+            
+            var sourceTargetDescriptor = renderingData.cameraData.cameraTargetDescriptor;
+            int width = sourceTargetDescriptor.width >> 1;
+            int height = sourceTargetDescriptor.height >> 1;
+            int lastDown = _BloomMipDown[0];
+            for (int i = 1; i <= bloom.setting.iteration; i++)
+            {
+                int mipDown = _BloomMipDown[i];
+                var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
+                    width, height, m_DefaultHDRFormat);
+                cmd.GetTemporaryRT(mipDown, desc, FilterMode.Bilinear);
+                cmd.SetGlobalTexture("_SourceTex", lastDown);
+                cmd.Blit(lastDown, mipDown, bloomMat, 1);
+                width = Mathf.Max(1, width >> 1);
+                height = Mathf.Max(1, height >> 1);
+                lastDown = mipDown;
+            }
+
+            for (int i = bloom.setting.iteration - 1; i >= 0; i--)
+            {
+                int mipUp = _BloomMipUp[i];
+                width = Mathf.Max(1, width << 1);
+                height = Mathf.Max(1, height << 1);
+                var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
+                    width, height, m_DefaultHDRFormat);
+                cmd.GetTemporaryRT(mipUp, desc, FilterMode.Bilinear);
+                cmd.SetGlobalTexture("_SourceTex", lastDown);
+                cmd.Blit(lastDown, mipUp, bloomMat, 2);
+                lastDown = mipUp;
+            }
+            cmd.Blit(lastDown, renderingData.cameraData.renderer.cameraColorTarget);
+            
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
         }
@@ -105,8 +144,12 @@ public class DualKawaseBloom : ScriptableRendererFeature
         // Cleanup any allocated resources that were created during the execution of this render pass.
         public override void OnCameraCleanup(CommandBuffer cmd)
         {
-            cmd.ReleaseTemporaryRT(_BloomMipDown[0]);
-            cmd.ReleaseTemporaryRT(_BloomMipUp[0]);
+            for (int i = 0; i < bloom.setting.iteration; i++)
+            {
+                cmd.ReleaseTemporaryRT(_BloomMipDown[i]);
+                cmd.ReleaseTemporaryRT(_BloomMipUp[i]);
+            }
+            cmd.ReleaseTemporaryRT(_BloomMipDown[bloom.setting.iteration]);
         }
     }
 

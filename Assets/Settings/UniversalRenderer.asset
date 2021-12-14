@@ -13,6 +13,11 @@ MonoBehaviour:
   m_Name: DualKawaseBloom
   m_EditorClassIdentifier: 
   m_Active: 1
+  setting:
+    threshold: 1
+    iteration: 3
+    blurRadius: 0
+    intensity: 0
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
