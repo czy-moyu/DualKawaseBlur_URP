@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -5,6 +6,16 @@ using UnityEngine.Rendering.Universal;
 
 public class DualKawaseBloom : ScriptableRendererFeature
 {
+    [SerializeField]
+    BloomSetting setting;
+    
+    [Serializable]
+    public class BloomSetting
+    {
+        [Range(0f, 10f)]
+        public float threshold = 1f;
+    }
+    
     class CustomRenderPass : ScriptableRenderPass
     {
         readonly GraphicsFormat m_DefaultHDRFormat;
@@ -12,9 +23,17 @@ public class DualKawaseBloom : ScriptableRendererFeature
         public static int[] _BloomMipUp;
         public static int[] _BloomMipDown;
         const int k_MaxPyramidSize = 16;
+        private Material bloomMat;
+        private DualKawaseBloom bloom;
         
-        public CustomRenderPass()
+        public CustomRenderPass(DualKawaseBloom dualKawaseBloom)
         {
+            bloom = dualKawaseBloom;
+            
+            
+            Shader shader = Shader.Find("Hidden/PostEffect/DualKawaseBloom");
+            bloomMat = new Material(shader);
+            
             // Texture format pre-lookup
             if (SystemInfo.IsFormatSupported(GraphicsFormat.B10G11R11_UFloatPack32, FormatUsage.Linear | FormatUsage.Render))
             {
@@ -29,7 +48,14 @@ public class DualKawaseBloom : ScriptableRendererFeature
                 m_UseRGBM = true;
             }
             
-            
+            _BloomMipUp = new int[k_MaxPyramidSize];
+            _BloomMipDown = new int[k_MaxPyramidSize];
+
+            for (int i = 0; i < k_MaxPyramidSize; i++)
+            {
+                _BloomMipUp[i] = Shader.PropertyToID("_BloomMipUp" + i);
+                _BloomMipDown[i] = Shader.PropertyToID("_BloomMipDown" + i);
+            }
         }
         
         // This method is called before executing the render pass.
@@ -44,6 +70,8 @@ public class DualKawaseBloom : ScriptableRendererFeature
             int height = sourceTargetDescriptor.height >> 1;
             var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                 width, height, m_DefaultHDRFormat);
+            cmd.GetTemporaryRT(_BloomMipDown[0], desc, FilterMode.Bilinear);
+            cmd.GetTemporaryRT(_BloomMipUp[0], desc, FilterMode.Bilinear);
         }
         
         RenderTextureDescriptor GetCompatibleDescriptor(RenderTextureDescriptor sourceTargetDescriptor, 
@@ -64,20 +92,31 @@ public class DualKawaseBloom : ScriptableRendererFeature
         // You don't have to call ScriptableRenderContext.submit, the render pipeline will call it at specific points in the pipeline.
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            CommandBuffer cmd = CommandBufferPool.Get("DualKawaseBloom");
+            cmd.Clear();
+            bloomMat.SetFloat(Threshold, bloom.setting.threshold);
+            cmd.Blit( renderingData.cameraData.renderer.cameraColorTarget, 
+                _BloomMipDown[0], bloomMat, 0);
+            cmd.Blit(_BloomMipDown[0], renderingData.cameraData.renderer.cameraColorTarget);
+            context.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
         }
 
         // Cleanup any allocated resources that were created during the execution of this render pass.
         public override void OnCameraCleanup(CommandBuffer cmd)
         {
+            cmd.ReleaseTemporaryRT(_BloomMipDown[0]);
+            cmd.ReleaseTemporaryRT(_BloomMipUp[0]);
         }
     }
 
     CustomRenderPass m_ScriptablePass;
+    private static readonly int Threshold = Shader.PropertyToID("_Threshold");
 
     /// <inheritdoc/>
     public override void Create()
     {
-        m_ScriptablePass = new CustomRenderPass();
+        m_ScriptablePass = new CustomRenderPass(this);
 
         // Configures where the render pass should be injected.
         m_ScriptablePass.renderPassEvent = RenderPassEvent.BeforeRenderingPostProcessing;
