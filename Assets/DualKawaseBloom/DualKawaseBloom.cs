@@ -14,11 +14,11 @@ public class DualKawaseBloom : ScriptableRendererFeature
     {
         [Range(0f, 10f)]
         public float threshold = 1f;
-        [Range(1,10)]
+        [Range(1,9)]
         public int iteration = 3;
         [Range(-1f, 10.0f)]
         public float blurRadius;
-        [Range(1f, 32f)]
+        [Range(0f, 32f)]
         public float intensity;
     }
     
@@ -28,7 +28,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
         bool m_UseRGBM;
         public static int[] _BloomMipUp;
         public static int[] _BloomMipDown;
-        const int k_MaxPyramidSize = 16;
+        const int k_MaxPyramidSize = 10;
         private Material bloomMat;
         private DualKawaseBloom bloom;
         
@@ -52,6 +52,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
                     : GraphicsFormat.R8G8B8A8_UNorm;
                 m_UseRGBM = true;
             }
+            CoreUtils.SetKeyword(bloomMat, ShaderKeywordStrings.UseRGBM, m_UseRGBM);
             
             _BloomMipUp = new int[k_MaxPyramidSize];
             _BloomMipDown = new int[k_MaxPyramidSize];
@@ -61,6 +62,15 @@ public class DualKawaseBloom : ScriptableRendererFeature
                 _BloomMipUp[i] = Shader.PropertyToID("_BloomMipUp" + i);
                 _BloomMipDown[i] = Shader.PropertyToID("_BloomMipDown" + i);
             }
+
+            UpdateMaterial();
+        }
+
+        public void UpdateMaterial()
+        {
+            bloomMat.SetFloat(Threshold, Mathf.GammaToLinearSpace(bloom.setting.threshold));
+            bloomMat.SetFloat(Offset, bloom.setting.blurRadius);
+            bloomMat.SetFloat(Intensity, bloom.setting.intensity);
         }
         
         // This method is called before executing the render pass.
@@ -76,7 +86,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
             var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                 width, height, m_DefaultHDRFormat);
             cmd.GetTemporaryRT(_BloomMipDown[0], desc, FilterMode.Bilinear);
-            cmd.GetTemporaryRT(_BloomMipUp[0], desc, FilterMode.Bilinear);
+            // cmd.GetTemporaryRT(_BloomMipUp[0], desc, FilterMode.Bilinear);
         }
         
         RenderTextureDescriptor GetCompatibleDescriptor(RenderTextureDescriptor sourceTargetDescriptor, 
@@ -99,12 +109,9 @@ public class DualKawaseBloom : ScriptableRendererFeature
         {
             CommandBuffer cmd = CommandBufferPool.Get("DualKawaseBloom");
             cmd.Clear();
-            bloomMat.SetFloat(Threshold, bloom.setting.threshold);
-            bloomMat.SetFloat("_Offset", bloom.setting.blurRadius);
             
             cmd.Blit( renderingData.cameraData.renderer.cameraColorTarget, 
                 _BloomMipDown[0], bloomMat, 0);
-            // cmd.Blit(_BloomMipDown[0], renderingData.cameraData.renderer.cameraColorTarget);
             
             var sourceTargetDescriptor = renderingData.cameraData.cameraTargetDescriptor;
             int width = sourceTargetDescriptor.width >> 1;
@@ -132,13 +139,28 @@ public class DualKawaseBloom : ScriptableRendererFeature
                     width, height, m_DefaultHDRFormat);
                 cmd.GetTemporaryRT(mipUp, desc, FilterMode.Bilinear);
                 cmd.SetGlobalTexture("_SourceTex", lastDown);
-                cmd.Blit(lastDown, mipUp, bloomMat, 2);
+                cmd.Blit(lastDown, 
+                    BlitDstDiscardContent(cmd,mipUp), bloomMat, 2);
                 lastDown = mipUp;
             }
-            cmd.Blit(lastDown, renderingData.cameraData.renderer.cameraColorTarget);
+            cmd.SetGlobalTexture("_SourceTex", lastDown);
+            cmd.SetGlobalTexture("_BaseTex", renderingData.cameraData.renderer.cameraColorTarget);
+            cmd.Blit(lastDown, 
+                (renderingData.cameraData.renderer.cameraColorTarget), 
+                bloomMat, 3);
             
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
+        }
+        
+        private BuiltinRenderTextureType BlitDstDiscardContent(CommandBuffer cmd, RenderTargetIdentifier rt)
+        {
+            // We set depth to DontCare because rt might be the source of PostProcessing used as a temporary target
+            // Source typically comes with a depth buffer and right now we don't have a way to only bind the color attachment of a RenderTargetIdentifier
+            cmd.SetRenderTarget(new RenderTargetIdentifier(rt, 0, CubemapFace.Unknown, -1),
+                RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store,
+                RenderBufferLoadAction.DontCare, RenderBufferStoreAction.DontCare);
+            return BuiltinRenderTextureType.CurrentActive;
         }
 
         // Cleanup any allocated resources that were created during the execution of this render pass.
@@ -155,6 +177,8 @@ public class DualKawaseBloom : ScriptableRendererFeature
 
     CustomRenderPass m_ScriptablePass;
     private static readonly int Threshold = Shader.PropertyToID("_Threshold");
+    private static readonly int Offset = Shader.PropertyToID("_Offset");
+    private static readonly int Intensity = Shader.PropertyToID("_Intensity");
 
     /// <inheritdoc/>
     public override void Create()
