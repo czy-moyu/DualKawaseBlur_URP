@@ -227,10 +227,10 @@ public class DualKawaseBloom : ScriptableRendererFeature
                 cmd.ReleaseTemporaryRT(_BloomMipUp[i]);
             }
             // cmd.ReleaseTemporaryRT(_BloomMipDown[bloom.setting.iteration]);
-            if (!useMsaa)
-            {
-                cmd.ReleaseTemporaryRT(Shader.PropertyToID("_TempColorTex"));
-            }
+            // if (!useMsaa)
+            // {
+            //     cmd.ReleaseTemporaryRT(Shader.PropertyToID("_TempColorTex"));
+            // }
         }
     }
 
