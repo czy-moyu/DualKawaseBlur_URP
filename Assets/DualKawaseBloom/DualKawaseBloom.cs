@@ -34,6 +34,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
         const int k_MaxPyramidSize = 10;
         private Material bloomMat;
         private DualKawaseBloom bloom;
+        private bool useMsaa = true;
         
         public CustomRenderPass(DualKawaseBloom dualKawaseBloom)
         {
@@ -67,6 +68,8 @@ public class DualKawaseBloom : ScriptableRendererFeature
             }
 
             UpdateMaterial();
+
+            useMsaa = UniversalRenderPipeline.asset.msaaSampleCount > 1;
         }
 
         public void UpdateMaterial()
@@ -97,7 +100,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
             int width, int height, GraphicsFormat format, int depthBufferBits = 0)
         {
             var desc = sourceTargetDescriptor;
-            desc.depthBufferBits = depthBufferBits;
+            desc.depthBufferBits = 0;
             desc.msaaSamples = 1;
             desc.width = width;
             desc.height = height;
@@ -177,12 +180,29 @@ public class DualKawaseBloom : ScriptableRendererFeature
             cmd.SetGlobalTexture("_BaseTex", renderingData.cameraData.renderer.cameraColorTarget);
             cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
             var cameraTarget = renderingData.cameraData.renderer.cameraColorTarget;
-            cmd.SetRenderTarget(cameraTarget, RenderBufferLoadAction.Load, 
-                RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare,
-                RenderBufferStoreAction.DontCare);
-            cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, bloomMat, 0, 3);
-            cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix,
-                renderingData.cameraData.camera.projectionMatrix);
+            if (useMsaa)
+            {
+                cmd.SetRenderTarget(cameraTarget, RenderBufferLoadAction.Load, 
+                    RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare,
+                    RenderBufferStoreAction.DontCare);
+                cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, bloomMat, 0, 3);
+                // cmd.DrawProcedural(Matrix4x4.identity, bloomMat, 3, MeshTopology.Triangles, 3, 1);
+                cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix,
+                    renderingData.cameraData.camera.projectionMatrix);
+            }
+            else
+            {
+                // var tempColorTex = Shader.PropertyToID("_TempColorTex");
+                // width = sourceTargetDescriptor.width;
+                // height = sourceTargetDescriptor.height;
+                // var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
+                //     width, height, sourceTargetDescriptor.graphicsFormat);
+                // cmd.GetTemporaryRT(tempColorTex, desc);
+                // cmd.SetGlobalTexture("_BaseTex", tempColorTex);
+                // cmd.Blit(cameraTarget ,tempColorTex);
+                // cmd.Blit(null, cameraTarget, bloomMat, 3);
+                Blit(cmd, ref renderingData, bloomMat, 3);
+            }
             
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
@@ -207,6 +227,10 @@ public class DualKawaseBloom : ScriptableRendererFeature
                 cmd.ReleaseTemporaryRT(_BloomMipUp[i]);
             }
             // cmd.ReleaseTemporaryRT(_BloomMipDown[bloom.setting.iteration]);
+            if (!useMsaa)
+            {
+                cmd.ReleaseTemporaryRT(Shader.PropertyToID("_TempColorTex"));
+            }
         }
     }
 
