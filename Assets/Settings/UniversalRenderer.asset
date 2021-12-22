@@ -12,12 +12,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96de06fc354aa45a59b8285ec4a3c9f4, type: 3}
   m_Name: DualKawaseBloom
   m_EditorClassIdentifier: 
-  m_Active: 0
+  m_Active: 1
   setting:
     threshold: 1
     iteration: 4
-    blurRadius: 0
-    intensity: 0.5
+    blurRadius: 0.9
+    intensity: 1.2
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0

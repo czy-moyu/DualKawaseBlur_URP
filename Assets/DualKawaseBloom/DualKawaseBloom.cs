@@ -117,37 +117,39 @@ public class DualKawaseBloom : ScriptableRendererFeature
             int width = sourceTargetDescriptor.width >> 1;
             int height = sourceTargetDescriptor.height >> 1;
             int lastDown = _BloomMipDown[0];
-            for (int i = 1; i <= bloom.setting.iteration; i++)
+            for (int i = 1; i < bloom.setting.iteration; i++)
             {
                 int mipDown = _BloomMipDown[i];
+                width = Mathf.Max(1, width >> 1);
+                height = Mathf.Max(1, height >> 1);
                 var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                     width, height, m_DefaultHDRFormat);
                 cmd.GetTemporaryRT(mipDown, desc, FilterMode.Bilinear);
                 cmd.SetGlobalTexture("_SourceTex", lastDown);
                 cmd.Blit(lastDown, mipDown, bloomMat, 1);
-                width = Mathf.Max(1, width >> 1);
-                height = Mathf.Max(1, height >> 1);
                 lastDown = mipDown;
             }
 
             for (int i = bloom.setting.iteration - 1; i >= 0; i--)
             {
                 int mipUp = _BloomMipUp[i];
-                width = Mathf.Max(1, width << 1);
-                height = Mathf.Max(1, height << 1);
                 var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                     width, height, m_DefaultHDRFormat);
                 cmd.GetTemporaryRT(mipUp, desc, FilterMode.Bilinear);
                 cmd.SetGlobalTexture("_SourceTex", lastDown);
                 cmd.Blit(lastDown, 
                     BlitDstDiscardContent(cmd,mipUp), bloomMat, 2);
+                width = Mathf.Max(1, width << 1);
+                height = Mathf.Max(1, height << 1);
                 lastDown = mipUp;
             }
             cmd.SetGlobalTexture("_SourceTex", lastDown);
             cmd.SetGlobalTexture("_BaseTex", renderingData.cameraData.renderer.cameraColorTarget);
-            cmd.Blit(lastDown, 
-                (renderingData.cameraData.renderer.cameraColorTarget), 
-                bloomMat, 3);
+            cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
+            cmd.SetRenderTarget(renderingData.cameraData.renderer.cameraColorTarget);
+            cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, bloomMat, 0, 3);
+            cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix,
+                renderingData.cameraData.camera.projectionMatrix);
             
             context.ExecuteCommandBuffer(cmd);
             CommandBufferPool.Release(cmd);
@@ -171,7 +173,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
                 cmd.ReleaseTemporaryRT(_BloomMipDown[i]);
                 cmd.ReleaseTemporaryRT(_BloomMipUp[i]);
             }
-            cmd.ReleaseTemporaryRT(_BloomMipDown[bloom.setting.iteration]);
+            // cmd.ReleaseTemporaryRT(_BloomMipDown[bloom.setting.iteration]);
         }
     }
 
