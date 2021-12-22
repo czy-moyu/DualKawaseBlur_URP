@@ -75,7 +75,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
         public void UpdateMaterial()
         {
             bloomMat.SetFloat(Threshold, Mathf.GammaToLinearSpace(bloom.setting.threshold));
-            bloomMat.SetFloat(Offset, bloom.setting.blurRadius);
+            // bloomMat.SetFloat(Offset, bloom.setting.blurRadius);
             bloomMat.SetFloat(Intensity, bloom.setting.intensity);
             bloomMat.SetFloat(Scatter, bloom.setting.scatter);
         }
@@ -132,10 +132,12 @@ public class DualKawaseBloom : ScriptableRendererFeature
             int lastDown = _Prefilter;
             for (int i = 0; i < bloom.setting.iteration; i++)
             {
+                // bloomMat.SetFloat(Offset, (float)i / (2f + bloom.setting.blurRadius));
                 int mipDown = _BloomMipDown[i];
                 var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                     width, height, m_DefaultHDRFormat);
                 cmd.GetTemporaryRT(mipDown, desc, FilterMode.Bilinear);
+                cmd.SetGlobalFloat(Offset, (float)i / (2f + bloom.setting.blurRadius));
                 cmd.SetGlobalTexture("_SourceTex", lastDown);
                 cmd.Blit(lastDown, mipDown, bloomMat, 1);
                 width = Mathf.Max(1, width >> 1);
