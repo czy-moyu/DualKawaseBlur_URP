@@ -14,9 +14,9 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
     struct v2f_PreFilter
     {
         float4 vertex: SV_POSITION;
-    	float2 uv: TEXCOORD0;
-    	float4 uv01: TEXCOORD1;
-		float4 uv23: TEXCOORD2;
+  		float2 uv: TEXCOORD0;
+  //   	float4 uv01: TEXCOORD1;
+		// float4 uv23: TEXCOORD2;
     };
 
 	struct v2f_DownSample
@@ -45,11 +45,13 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
 
 	TEXTURE2D(_SourceTex);
 	TEXTURE2D(_BaseTex);
+	TEXTURE2D(_SourceTexLowMip);
 	float4 _SourceTex_TexelSize;
 	// SAMPLER(sampler_LinearClamp);
     float _Threshold;
 	half _Offset;
 	float _Intensity;
+	half _Scatter;
 
 	half4 EncodeHDR(half3 color)
     {
@@ -86,10 +88,10 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
 		float2 uv = v.texcoord;
 		_SourceTex_TexelSize *= 0.5;
 		o.uv = uv;
-		o.uv01.xy = uv - _SourceTex_TexelSize.xy * float2(1.0 + _Offset, 1.0 + _Offset);//top right
-		o.uv01.zw = uv + _SourceTex_TexelSize.xy * float2(1.0 + _Offset, 1.0 + _Offset);//bottom left
-		o.uv23.xy = uv - float2(_SourceTex_TexelSize.x, -_SourceTex_TexelSize.y) * float2(1.0 + _Offset, 1.0 + _Offset);//top left
-		o.uv23.zw = uv + float2(_SourceTex_TexelSize.x, -_SourceTex_TexelSize.y) * float2(1.0 + _Offset, 1.0 + _Offset);//bottom right
+		// o.uv01.xy = uv - _SourceTex_TexelSize.xy * float2(1.0 + _Offset, 1.0 + _Offset);//top right
+		// o.uv01.zw = uv + _SourceTex_TexelSize.xy * float2(1.0 + _Offset, 1.0 + _Offset);//bottom left
+		// o.uv23.xy = uv - float2(_SourceTex_TexelSize.x, -_SourceTex_TexelSize.y) * float2(1.0 + _Offset, 1.0 + _Offset);//top left
+		// o.uv23.zw = uv + float2(_SourceTex_TexelSize.x, -_SourceTex_TexelSize.y) * float2(1.0 + _Offset, 1.0 + _Offset);//bottom right
         return o;
     }
 
@@ -107,14 +109,14 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
     	UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
     	// float2 uv = UnityStereoTransformScreenSpaceTex(v.uv);
 
-    	half3 sum = DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv)) * 4;
-		sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv01.xy));
-		sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv01.zw));
-		sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv23.xy));
-		sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv23.zw));
-    	half3 color = sum * 0.125;
+  //   	half3 sum = DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv)) * 4;
+		// sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv01.xy));
+		// sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv01.zw));
+		// sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv23.xy));
+		// sum += DecodeHDR(SAMPLE_TEXTURE2D(_SourceTex, sampler_LinearClamp, v.uv23.zw));
+  //   	half3 color = sum * 0.125;
     	
-    	// half3 color = SAMPLE_TEXTURE2D_X(_SourceTex, sampler_LinearClamp, uv).xyz;
+    	half3 color = SAMPLE_TEXTURE2D_X(_SourceTex, sampler_LinearClamp, v.uv).xyz;
         // half4 color = _SourceTex.SampleLevel(sampler_LinearClamp, uv, 0);
         color = min(65472.0, color);
         // float br = max(max(color.r, color.g), color.b);
@@ -219,6 +221,21 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
 		half3 finalColor = baseColor.rgb + bloomColor.rgb * _Intensity;
 		return EncodeHDR(finalColor);
 	}
+
+	half3 Upsample(float2 uv)
+    {
+        half3 highMip = DecodeHDR(SAMPLE_TEXTURE2D_X(_SourceTex, sampler_LinearClamp, uv));
+        half3 lowMip = DecodeHDR(SAMPLE_TEXTURE2D_X(_SourceTexLowMip, sampler_LinearClamp, uv));
+
+        return lerp(highMip, lowMip, _Scatter);
+    }
+
+	half4 FragUpsample(Varyings input) : SV_Target
+    {
+        UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+        half3 color = Upsample(UnityStereoTransformScreenSpaceTex(input.uv));
+        return EncodeHDR(color);
+    }
 	
     ENDHLSL
     
@@ -248,6 +265,8 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
 		
 		Pass
 		{
+			Name "Bloom Upsample"
+			
 			HLSLPROGRAM
 			
 			#pragma vertex Vert_UpSample
@@ -262,6 +281,16 @@ Shader "Hidden/PostEffect/DualKawaseBloom"
     		#pragma vertex Vert_Combine
 			#pragma fragment Frag_Combine
     		ENDHLSL
+        }
+    	
+    	Pass
+        {
+            Name "Bloom Upsample2"
+
+            HLSLPROGRAM
+                #pragma vertex FullscreenVert
+                #pragma fragment FragUpsample
+            ENDHLSL
         }
     }
 }

@@ -20,6 +20,8 @@ public class DualKawaseBloom : ScriptableRendererFeature
         public float blurRadius;
         [Range(0f, 32f)]
         public float intensity;
+        [Range(0f, 1f)] 
+        public float scatter = 0.68f;
     }
     
     class CustomRenderPass : ScriptableRenderPass
@@ -28,6 +30,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
         bool m_UseRGBM;
         public static int[] _BloomMipUp;
         public static int[] _BloomMipDown;
+        public static int _Prefilter = Shader.PropertyToID("_Prefilter");
         const int k_MaxPyramidSize = 10;
         private Material bloomMat;
         private DualKawaseBloom bloom;
@@ -71,6 +74,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
             bloomMat.SetFloat(Threshold, Mathf.GammaToLinearSpace(bloom.setting.threshold));
             bloomMat.SetFloat(Offset, bloom.setting.blurRadius);
             bloomMat.SetFloat(Intensity, bloom.setting.intensity);
+            bloomMat.SetFloat(Scatter, bloom.setting.scatter);
         }
         
         // This method is called before executing the render pass.
@@ -107,46 +111,75 @@ public class DualKawaseBloom : ScriptableRendererFeature
         // You don't have to call ScriptableRenderContext.submit, the render pipeline will call it at specific points in the pipeline.
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
-            CommandBuffer cmd = CommandBufferPool.Get("DualKawaseBloom");
-            cmd.Clear();
-            
-            cmd.Blit( renderingData.cameraData.renderer.cameraColorTarget, 
-                _BloomMipDown[0], bloomMat, 0);
-            
             var sourceTargetDescriptor = renderingData.cameraData.cameraTargetDescriptor;
+            sourceTargetDescriptor.useMipMap = false;
+            sourceTargetDescriptor.autoGenerateMips = false;
             int width = sourceTargetDescriptor.width >> 1;
             int height = sourceTargetDescriptor.height >> 1;
-            int lastDown = _BloomMipDown[0];
-            for (int i = 1; i < bloom.setting.iteration; i++)
+            
+            CommandBuffer cmd = CommandBufferPool.Get("DualKawaseBloom");
+            cmd.Clear();
+            var desc0 = GetCompatibleDescriptor(sourceTargetDescriptor, 
+                width, height, m_DefaultHDRFormat);
+            cmd.GetTemporaryRT(_Prefilter, desc0, FilterMode.Bilinear);
+            cmd.Blit( renderingData.cameraData.renderer.cameraColorTarget, 
+                _Prefilter, bloomMat, 0);
+            
+            
+            int lastDown = _Prefilter;
+            for (int i = 0; i < bloom.setting.iteration; i++)
             {
                 int mipDown = _BloomMipDown[i];
-                width = Mathf.Max(1, width >> 1);
-                height = Mathf.Max(1, height >> 1);
                 var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
                     width, height, m_DefaultHDRFormat);
                 cmd.GetTemporaryRT(mipDown, desc, FilterMode.Bilinear);
                 cmd.SetGlobalTexture("_SourceTex", lastDown);
                 cmd.Blit(lastDown, mipDown, bloomMat, 1);
+                width = Mathf.Max(1, width >> 1);
+                height = Mathf.Max(1, height >> 1);
                 lastDown = mipDown;
             }
 
-            for (int i = bloom.setting.iteration - 1; i >= 0; i--)
+            // for (int i = bloom.setting.iteration - 1; i >= 0; i--)
+            // {
+            //     int mipUp = _BloomMipUp[i];
+            //     width = Mathf.Max(1, width << 1);
+            //     height = Mathf.Max(1, height << 1);
+            //     var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
+            //         width, height, m_DefaultHDRFormat);
+            //     cmd.GetTemporaryRT(mipUp, desc, FilterMode.Bilinear);
+            //     cmd.SetGlobalTexture("_SourceTex", lastDown);
+            //     cmd.Blit(lastDown, 
+            //         BlitDstDiscardContent(cmd,mipUp), bloomMat, 2);
+            //     lastDown = mipUp;
+            // }
+
+            width = Mathf.Max(1, width << 1);
+            height = Mathf.Max(1, height << 1);
+            for (int i = bloom.setting.iteration - 2; i >= 0; i--)
             {
-                int mipUp = _BloomMipUp[i];
-                var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
-                    width, height, m_DefaultHDRFormat);
-                cmd.GetTemporaryRT(mipUp, desc, FilterMode.Bilinear);
-                cmd.SetGlobalTexture("_SourceTex", lastDown);
-                cmd.Blit(lastDown, 
-                    BlitDstDiscardContent(cmd,mipUp), bloomMat, 2);
+                int highMip = _BloomMipDown[i];
+                int lowMip = lastDown;
+                int dst = _BloomMipUp[i];
                 width = Mathf.Max(1, width << 1);
                 height = Mathf.Max(1, height << 1);
-                lastDown = mipUp;
+                var desc = GetCompatibleDescriptor(sourceTargetDescriptor, 
+                    width, height, m_DefaultHDRFormat);
+                cmd.GetTemporaryRT(dst, desc, FilterMode.Bilinear);
+                cmd.SetGlobalTexture("_SourceTexLowMip", lowMip);
+                cmd.SetGlobalTexture("_SourceTex", highMip);
+                cmd.Blit(highMip,
+                    BlitDstDiscardContent(cmd,dst), bloomMat, 4);
+                lastDown = dst;
             }
+            
             cmd.SetGlobalTexture("_SourceTex", lastDown);
             cmd.SetGlobalTexture("_BaseTex", renderingData.cameraData.renderer.cameraColorTarget);
             cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.identity);
-            cmd.SetRenderTarget(renderingData.cameraData.renderer.cameraColorTarget);
+            var cameraTarget = renderingData.cameraData.renderer.cameraColorTarget;
+            cmd.SetRenderTarget(cameraTarget, RenderBufferLoadAction.Load, 
+                RenderBufferStoreAction.Store, RenderBufferLoadAction.DontCare,
+                RenderBufferStoreAction.DontCare);
             cmd.DrawMesh(RenderingUtils.fullscreenMesh, Matrix4x4.identity, bloomMat, 0, 3);
             cmd.SetViewProjectionMatrices(renderingData.cameraData.camera.worldToCameraMatrix,
                 renderingData.cameraData.camera.projectionMatrix);
@@ -181,6 +214,7 @@ public class DualKawaseBloom : ScriptableRendererFeature
     private static readonly int Threshold = Shader.PropertyToID("_Threshold");
     private static readonly int Offset = Shader.PropertyToID("_Offset");
     private static readonly int Intensity = Shader.PropertyToID("_Intensity");
+    private static readonly int Scatter = Shader.PropertyToID("_Scatter");
 
     /// <inheritdoc/>
     public override void Create()

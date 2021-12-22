@@ -15,9 +15,10 @@ MonoBehaviour:
   m_Active: 1
   setting:
     threshold: 1
-    iteration: 4
-    blurRadius: 0.9
-    intensity: 1.2
+    iteration: 6
+    blurRadius: 1
+    intensity: 1
+    scatter: 0.68
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
